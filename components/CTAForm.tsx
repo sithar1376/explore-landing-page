@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AlertCircle, ArrowRight, Check, LoaderCircle, ShieldCheck } from "lucide-react";
 import { parsePhoneNumberFromString, type CountryCode } from "libphonenumber-js";
@@ -30,9 +29,14 @@ const initialValues: Values = {
   company: "",
 };
 
-const endpoint =
+const configuredEndpoint =
   process.env.NEXT_PUBLIC_FORMSUBMIT_ENDPOINT ||
-  "https://formsubmit.co/ajax/sithar1376@gmail.com";
+  "https://formsubmit.co/sithar1376@gmail.com";
+const endpoint = configuredEndpoint.replace("https://formsubmit.co/ajax/", "https://formsubmit.co/");
+const siteUrl = (
+  process.env.NEXT_PUBLIC_SITE_URL || "https://explore.smilewithsithar.com"
+).replace(/\/$/, "");
+const thankYouUrl = `${siteUrl}/thank-you?submitted=1`;
 
 function isValidUrl(value: string) {
   if (!value.trim()) return true;
@@ -71,7 +75,6 @@ function getInternationalWhatsApp(country: string, nationalNumber: string) {
 }
 
 export function CTAForm() {
-  const router = useRouter();
   const [values, setValues] = useState(initialValues);
   const [errors, setErrors] = useState<Errors>({});
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
@@ -104,10 +107,13 @@ export function CTAForm() {
     return Object.keys(next).length === 0;
   }
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (status === "loading" || values.company) return;
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    if (status === "loading" || values.company) {
+      event.preventDefault();
+      return;
+    }
     if (!validate()) {
+      event.preventDefault();
       setStatus("error");
       setStatusMessage("Please check the highlighted fields and try again.");
       return;
@@ -120,51 +126,17 @@ export function CTAForm() {
       values.whatsapp,
     );
     if (!internationalWhatsApp) {
+      event.preventDefault();
       setStatus("error");
       setStatusMessage("Please check your country code and WhatsApp number.");
       return;
     }
-    const payload = {
-      name: values.fullName.trim(),
-      email: values.email.trim(),
-      whatsapp: internationalWhatsApp,
-      whatsapp_country: values.whatsappCountry,
-      profession_or_organization: values.profession.trim(),
-      website_or_facebook: values.website.trim(),
-      message: values.message.trim(),
-      _subject: "New SmileWithSithar Connection Request",
-      _template: "table",
-      _captcha: "false",
-      _honey: values.company,
-      _url: `${window.location.origin}/thank-you`,
-    };
 
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const result = (await response.json().catch(() => null)) as
-        | { success?: boolean | string; message?: string }
-        | null;
-      const accepted =
-        response.ok && (result?.success === true || result?.success === "true");
-      if (!accepted) {
-        throw new Error(result?.message || "Your request could not be sent.");
-      }
-
-      sessionStorage.setItem("smilewithsithar:connection-submitted", "confirmed");
-      router.push("/thank-you?submitted=1");
-    } catch (error) {
-      setStatus("error");
-      setStatusMessage(
-        error instanceof Error
-          ? error.message
-          : "Your request could not be sent. Please try again.",
-      );
-    }
+    sessionStorage.setItem("smilewithsithar:connection-submitted", "confirmed");
   }
+
+  const internationalWhatsApp =
+    getInternationalWhatsApp(values.whatsappCountry, values.whatsapp) || "";
 
   return (
     <section className="section form-section" id="connection-form" aria-labelledby="form-title">
@@ -201,7 +173,20 @@ export function CTAForm() {
           </p>
         </div>
 
-        <form className="connection-form" onSubmit={submit} noValidate aria-busy={status === "loading"}>
+        <form
+          className="connection-form"
+          action={endpoint}
+          method="POST"
+          onSubmit={submit}
+          noValidate
+          aria-busy={status === "loading"}
+        >
+          <input type="hidden" name="whatsapp" value={internationalWhatsApp} />
+          <input type="hidden" name="whatsapp_country" value={values.whatsappCountry} />
+          <input type="hidden" name="_subject" value="New SmileWithSithar Connection Request" />
+          <input type="hidden" name="_template" value="table" />
+          <input type="hidden" name="_captcha" value="false" />
+          <input type="hidden" name="_next" value={thankYouUrl} />
           <div className="form-grid">
             <Field label="Full Name" id="full-name" required error={errors.fullName}>
               <input
@@ -239,7 +224,7 @@ export function CTAForm() {
             <Field label="Profession / Organization" id="profession" hint="Optional">
               <input
                 id="profession"
-                name="profession"
+                name="profession_or_organization"
                 autoComplete="organization"
                 value={values.profession}
                 onChange={(event) => update("profession", event.target.value)}
@@ -254,7 +239,7 @@ export function CTAForm() {
             >
               <input
                 id="website"
-                name="website"
+                name="website_or_facebook"
                 type="url"
                 autoComplete="url"
                 value={values.website}
