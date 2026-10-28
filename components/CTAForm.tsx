@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AlertCircle, ArrowRight, Check, LoaderCircle, ShieldCheck } from "lucide-react";
 import { parsePhoneNumberFromString, type CountryCode } from "libphonenumber-js";
@@ -75,6 +76,7 @@ function getInternationalWhatsApp(country: string, nationalNumber: string) {
 }
 
 export function CTAForm() {
+  const router = useRouter();
   const [values, setValues] = useState(initialValues);
   const [errors, setErrors] = useState<Errors>({});
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
@@ -107,13 +109,12 @@ export function CTAForm() {
     return Object.keys(next).length === 0;
   }
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     if (status === "loading" || values.company) {
-      event.preventDefault();
       return;
     }
     if (!validate()) {
-      event.preventDefault();
       setStatus("error");
       setStatusMessage("Please check the highlighted fields and try again.");
       return;
@@ -126,13 +127,45 @@ export function CTAForm() {
       values.whatsapp,
     );
     if (!internationalWhatsApp) {
-      event.preventDefault();
       setStatus("error");
       setStatusMessage("Please check your country code and WhatsApp number.");
       return;
     }
 
-    sessionStorage.setItem("smilewithsithar:connection-submitted", "confirmed");
+    const payload = {
+      name: values.fullName.trim(),
+      email: values.email.trim(),
+      whatsapp: internationalWhatsApp,
+      whatsapp_country: values.whatsappCountry,
+      profession_or_organization: values.profession.trim(),
+      website_or_facebook: values.website.trim(),
+      message: values.message.trim(),
+      company: values.company,
+    };
+
+    try {
+      const response = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = (await response.json().catch(() => null)) as
+        | { success?: boolean; message?: string }
+        | null;
+      if (!response.ok || result?.success !== true) {
+        throw new Error(result?.message || "Your request could not be sent.");
+      }
+
+      sessionStorage.setItem("smilewithsithar:connection-submitted", "confirmed");
+      router.push("/thank-you?submitted=1");
+    } catch (error) {
+      setStatus("error");
+      setStatusMessage(
+        error instanceof Error
+          ? error.message
+          : "Your request could not be sent. Please try again.",
+      );
+    }
   }
 
   const internationalWhatsApp =
