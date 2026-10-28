@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { AlertCircle, ArrowRight, Check, LoaderCircle, ShieldCheck } from "lucide-react";
 import { parsePhoneNumberFromString, type CountryCode } from "libphonenumber-js";
 import { InternationalPhoneField } from "./InternationalPhoneField";
@@ -75,10 +75,15 @@ function getInternationalWhatsApp(country: string, nationalNumber: string) {
   return phoneNumber?.isValid() ? phoneNumber.number : null;
 }
 
+function isConfirmedFormSubmitSuccess(responseBody: string) {
+  return (
+    /the form was submitted successfully/i.test(responseBody) ||
+    /<h1[^>]*>\s*thanks!\s*<\/h1>/i.test(responseBody)
+  );
+}
+
 export function CTAForm() {
   const router = useRouter();
-  const submissionStarted = useRef(false);
-  const timeoutId = useRef<number | null>(null);
   const [values, setValues] = useState(initialValues);
   const [errors, setErrors] = useState<Errors>({});
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
@@ -111,19 +116,13 @@ export function CTAForm() {
     return Object.keys(next).length === 0;
   }
 
-  useEffect(() => {
-    return () => {
-      if (timeoutId.current !== null) window.clearTimeout(timeoutId.current);
-    };
-  }, []);
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
     if (status === "loading" || values.company) {
-      event.preventDefault();
       return;
     }
     if (!validate()) {
-      event.preventDefault();
       setStatus("error");
       setStatusMessage("Please check the highlighted fields and try again.");
       return;
@@ -136,29 +135,56 @@ export function CTAForm() {
       values.whatsapp,
     );
     if (!internationalWhatsApp) {
-      event.preventDefault();
       setStatus("error");
       setStatusMessage("Please check your country code and WhatsApp number.");
       return;
     }
 
-    submissionStarted.current = true;
-    timeoutId.current = window.setTimeout(() => {
-      submissionStarted.current = false;
-      setStatus("error");
-      setStatusMessage("The form service is taking too long. Please try again shortly.");
-    }, 45_000);
-  }
+    const payload = new URLSearchParams({
+      name: values.fullName.trim(),
+      email: values.email.trim(),
+      whatsapp: internationalWhatsApp,
+      whatsapp_country: values.whatsappCountry,
+      profession_or_organization: values.profession.trim(),
+      website_or_facebook: values.website.trim(),
+      message: values.message.trim(),
+      _subject: "New SmileWithSithar Connection Request",
+      _template: "table",
+      _captcha: "false",
+      _next: thankYouUrl,
+      _honey: values.company,
+    });
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 45_000);
 
-  function handleSubmissionResponse() {
-    if (!submissionStarted.current) return;
-    submissionStarted.current = false;
-    if (timeoutId.current !== null) {
-      window.clearTimeout(timeoutId.current);
-      timeoutId.current = null;
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          Accept: "text/html",
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        },
+        body: payload.toString(),
+        signal: controller.signal,
+      });
+      const responseBody = await response.text();
+
+      if (!response.ok || !isConfirmedFormSubmitSuccess(responseBody)) {
+        throw new Error("FormSubmit did not confirm that the submission was accepted.");
+      }
+
+      sessionStorage.setItem("smilewithsithar:connection-submitted", "confirmed");
+      router.push("/thank-you?submitted=1");
+    } catch (error) {
+      setStatus("error");
+      setStatusMessage(
+        error instanceof DOMException && error.name === "AbortError"
+          ? "The form service is taking too long. Please try again shortly."
+          : "Your request was not confirmed as sent. Please try again.",
+      );
+    } finally {
+      window.clearTimeout(timeoutId);
     }
-    sessionStorage.setItem("smilewithsithar:connection-submitted", "confirmed");
-    router.push("/thank-you?submitted=1");
   }
 
   const internationalWhatsApp =
@@ -203,7 +229,6 @@ export function CTAForm() {
           className="connection-form"
           action={endpoint}
           method="POST"
-          target="formsubmit-response"
           onSubmit={submit}
           noValidate
           aria-busy={status === "loading"}
@@ -322,12 +347,6 @@ export function CTAForm() {
             I&apos;ll personally reach out to arrange a suitable time.
           </p>
         </form>
-        <iframe
-          name="formsubmit-response"
-          title="Form submission response"
-          hidden
-          onLoad={handleSubmissionResponse}
-        />
       </div>
     </section>
   );
