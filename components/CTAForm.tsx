@@ -37,7 +37,9 @@ const endpoint = configuredEndpoint.replace("https://formsubmit.co/ajax/", "http
 const siteUrl = (
   process.env.NEXT_PUBLIC_SITE_URL || "https://explore.smilewithsithar.com"
 ).replace(/\/$/, "");
+const formUrl = `${siteUrl}/`;
 const thankYouUrl = `${siteUrl}/thank-you?submitted=1`;
+const submissionTimeoutMs = 120_000;
 
 function isValidUrl(value: string) {
   if (!value.trim()) return true;
@@ -151,11 +153,12 @@ export function CTAForm() {
       _subject: "New SmileWithSithar Connection Request",
       _template: "table",
       _captcha: "false",
+      _url: formUrl,
       _next: thankYouUrl,
       _honey: values.company,
     });
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 45_000);
+    const timeoutId = window.setTimeout(() => controller.abort(), submissionTimeoutMs);
 
     try {
       const response = await fetch(endpoint, {
@@ -165,6 +168,7 @@ export function CTAForm() {
           "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
         },
         body: payload.toString(),
+        mode: "cors",
         signal: controller.signal,
       });
       const responseBody = await response.text();
@@ -238,6 +242,7 @@ export function CTAForm() {
           <input type="hidden" name="_subject" value="New SmileWithSithar Connection Request" />
           <input type="hidden" name="_template" value="table" />
           <input type="hidden" name="_captcha" value="false" />
+          <input type="hidden" name="_url" value={formUrl} />
           <input type="hidden" name="_next" value={thankYouUrl} />
           <div className="form-grid">
             <Field label="Full Name" id="full-name" required error={errors.fullName}>
