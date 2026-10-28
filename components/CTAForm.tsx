@@ -39,7 +39,7 @@ const siteUrl = (
 ).replace(/\/$/, "");
 const formUrl = `${siteUrl}/`;
 const thankYouUrl = `${siteUrl}/thank-you?submitted=1`;
-const submissionTimeoutMs = 120_000;
+const submissionTimeoutMs = 65_000;
 
 function isValidUrl(value: string) {
   if (!value.trim()) return true;
@@ -75,13 +75,6 @@ function getInternationalWhatsApp(country: string, nationalNumber: string) {
     extract: false,
   });
   return phoneNumber?.isValid() ? phoneNumber.number : null;
-}
-
-function isConfirmedFormSubmitSuccess(responseBody: string) {
-  return (
-    /the form was submitted successfully/i.test(responseBody) ||
-    /<h1[^>]*>\s*thanks!\s*<\/h1>/i.test(responseBody)
-  );
 }
 
 export function CTAForm() {
@@ -142,7 +135,7 @@ export function CTAForm() {
       return;
     }
 
-    const payload = new URLSearchParams({
+    const payload = {
       name: values.fullName.trim(),
       email: values.email.trim(),
       whatsapp: internationalWhatsApp,
@@ -150,31 +143,34 @@ export function CTAForm() {
       profession_or_organization: values.profession.trim(),
       website_or_facebook: values.website.trim(),
       message: values.message.trim(),
-      _subject: "New SmileWithSithar Connection Request",
-      _template: "table",
-      _captcha: "false",
-      _url: formUrl,
-      _next: thankYouUrl,
-      _honey: values.company,
-    });
+      company: values.company,
+    };
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), submissionTimeoutMs);
 
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetch("/api/contact", {
         method: "POST",
         headers: {
-          Accept: "text/html",
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          Accept: "application/json",
+          "Content-Type": "application/json",
         },
-        body: payload.toString(),
-        mode: "cors",
+        body: JSON.stringify(payload),
         signal: controller.signal,
       });
-      const responseBody = await response.text();
+      const result = (await response.json().catch(() => null)) as
+        | {
+            accepted?: boolean;
+            deliveryConfirmed?: boolean;
+            code?: string;
+            message?: string;
+          }
+        | null;
 
-      if (!response.ok || !isConfirmedFormSubmitSuccess(responseBody)) {
-        throw new Error("FormSubmit did not confirm that the submission was accepted.");
+      if (!response.ok || result?.accepted !== true) {
+        throw new Error(
+          result?.message || "The form service did not confirm acceptance. Please try again.",
+        );
       }
 
       sessionStorage.setItem("smilewithsithar:connection-submitted", "confirmed");
@@ -184,7 +180,9 @@ export function CTAForm() {
       setStatusMessage(
         error instanceof DOMException && error.name === "AbortError"
           ? "The form service is taking too long. Please try again shortly."
-          : "Your request was not confirmed as sent. Please try again.",
+          : error instanceof Error
+            ? error.message
+            : "The form service did not confirm acceptance. Please try again.",
       );
     } finally {
       window.clearTimeout(timeoutId);
